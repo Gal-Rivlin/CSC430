@@ -135,7 +135,7 @@
 
 (define (arg-find [find : Id] [vars : (Listof Real)] [args : (Listof Id)]) : Real
   (match* (vars args)
-    [('() '()) (error 'interp "QWJZ - unbound identifer") ]
+    [('() '()) (error 'arg-find "QWJZ - unbound identifer") ]
     [((cons f1 r1) (cons f2 r2)) (if (equal? find f2) f1 (arg-find find r1 r2))]))
 
 
@@ -197,4 +197,39 @@
                       {g = {proc (x z) {- z x}}}
                       {main = {proc () {+ {f 3 2 4} {g 5 2}}}}}))
        17)
+
+(check-exn #rx"QWJZ - wrong number of arguments pushed"
+           (lambda () (interp-fns (parse-prog '{{f = {proc (x y z) {* {+ x y} z} }}
+                      {g = {proc (x z) {- z {f x}}}}
+                      {main = {proc () {+ {g 3 2 4} 3}}}}))))
+
+(check-exn #rx"QWJZ - unbound identifer"
+           (lambda () (interp-fns (parse-prog '{{f = {proc (x y z) {* {+ x y} m} }}
+                      {g = {proc (x z) {- z {f x x x}}}}
+                      {main = {proc () {+ {g 3 4} 3}}}}))))
+
+(check-exn #rx"QWJZ - function name 'l not found"
+           (lambda () (interp-fns (parse-prog '{{f = {proc (x y z) {* {+ x y} z} }}
+                      {g = {proc (x z) {- z {l x x x}}}}
+                      {main = {proc () {+ {g 3 4} 3}}}}))))
+
+
+(check-equal? (interp-fns
+        (parse-prog '{{f = {proc (x y z) {* {+ x y} z} }}
+                      {g = {proc (x z) {- z {f x x x}}}}
+                      {main = {proc () {+ {g 3 2} 3}}}}))
+       -13)
+
+(check-equal? (interp-fns
+        (parse-prog '{{f = {proc (x y z) {* {+ x y} z} }}
+                      {g = {proc (x z) {- z {f x x x}}}}
+                      {main = {proc () {ifleq0? {+ {g 3 2} 3} 5 13}}}}))
+       5)
+
+
+
+
+
+
+
 
