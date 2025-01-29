@@ -26,6 +26,7 @@
     [(list (? is-op? n) left right) (BinOp (cast n Symbol) (parse left) (parse right))]
     [(? symbol? s) (Id s)]
     [(list 'ifleq0? val then else) (IfLeq0? (parse val) (parse then) (parse else))]
+    [(list (? is-op? n) x ...) (error 'parse "QWJZ - wrong num of arguments in binop")]
     [(list (? symbol? s) x ...) (Fcall (Id s) (map parse x))]
     [other (error 'parse "QWJZ - expected valid expression, got ~e" other)]))
 
@@ -164,6 +165,8 @@
            (lambda () (interp (parse '{fail}))))
 (check-exn #rx"QWJZ - unbound identifer"
            (lambda () (interp (parse '{hi}))))
+(check-exn #rx"QWJZ - wrong num of arguments in binop"
+           (lambda () (parse '{- 3 4 5})))
 
 ;; ifleq0? tests
 (check-equal? (parse '{ifleq0? 1 1 {- 1 1}}) (IfLeq0? (NumC 1) (NumC 1) (BinOp '- (NumC 1) (NumC 1))))
@@ -182,6 +185,7 @@
            (lambda () (parse-fundef '{foo = {proc {x x} {+ x y}}})))
 (check-exn #rx"QWJZ - Syntax Error: Wrong function definition format"
            (lambda () (parse-fundef '{hi})))
+
 
 ;; full program tests
 (check-equal? (top-interp '{{f = {proc (x y) {+ x y}}}
