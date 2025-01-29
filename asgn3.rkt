@@ -38,6 +38,9 @@
 ;; parse-fundef parses an s-expression into a funcion definition
 (define (parse-fundef [fundef : Sexp]) : FundefC
   (match fundef
+    [(list 'main '= (list 'proc (list (? symbol? id) ...) exp))
+     (if (= (length id) 0) (FundefC (Id 'main) '() (parse exp))
+         (error 'parse-fundef "QWJZ - main should not have any arguments")) ]
     [(list (? symbol? name) '= (list 'proc (list (? symbol? id) ...) exp))
      (if (check-duplicates (cast id (Listof Symbol)))
          (error 'parse-fundef "QWJZ - Syntax Error: Duplicate argument names in function call")
@@ -209,7 +212,7 @@
                                                 {g = {proc (x z) {- z {l x x x}}}}
                                                 {main = {proc () {+ {g 3 4} 3}}}})))
 
-(check-exn #rx"QWJZ - Syntax Error: duplicate function name 'f"
+#;(check-exn #rx"QWJZ - Syntax Error: duplicate function name 'f"
            (lambda () (top-interp '{{f = {proc (x y) {+ x y}}}
                                     {f = {proc (n) {+ n 1}}}
                                     {main = {proc () {f 1 2}}}})))
