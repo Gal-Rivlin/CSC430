@@ -18,12 +18,12 @@
 
 ;; Val data defintitions (for interp)
 
-(define-type Val (U NumV BoolV StrV CloV PrimV))
+(define-type ValV (U NumV BoolV StrV CloV PrimV))
 (struct NumV ([n : Real]) #:transparent)
 (struct StrV ([s : String]) #:transparent)
 (struct BoolV ([b : Boolean]) #:transparent)
 (struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : (Listof Bind)]))
-(struct Bind ([id : Symbol] [val : Val]) #:transparent)
+(struct Bind ([id : Symbol] [val : ValV]) #:transparent)
 (struct PrimV ([id : Symbol] [left : ExprC] [right : ExprC]))
 
 
@@ -54,7 +54,16 @@
     [other (error 'asgn-pairs "QWJZ - Syntax Error: declaration must be id - val format")]))
 
 
+;; interp : takes in an expression and its enviroment returns a value
 
+(define (interp [e : ExprC] [envir : (Listof Bind)]) : ValV
+  ;needs to handle: numc , strc , idc , ifc , appc , lamc
+  (match e
+    [(NumC n) (NumV n)]
+    [(StrC s) (StrV s)]
+    [(IfC b t else) (if (equal? (interp b envir) (BoolV #t))
+                        (interp t envir)
+                        (interp else envir))]))
 
 
 ;; testings
@@ -83,6 +92,7 @@
 
 (check-exn #rx"QWJZ - Syntax Error: declaration must be id - val format"
            (lambda () (parse '{declare {[x 5] [5 3]} in {+ x y}})))
+
 
 
 
