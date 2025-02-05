@@ -24,7 +24,7 @@
 (struct BoolV ([b : Boolean]) #:transparent)
 (struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : (Listof Bind)]))
 (struct Bind ([id : Symbol] [val : ValV]) #:transparent)
-(struct PrimV ([id : Symbol] [left : ExprC] [right : ExprC]))
+(struct PrimV ([id : Symbol] [env : (Listof Bind)]))
 
 
 ;; parse, takes in an Sexp and returns an exprc
@@ -60,7 +60,7 @@
   ;needs to handle: numc , strc , idc , ifc , appc , lamc
   (match e
     [(NumC n) (NumV n)]
-    [(IdC id) (find-bind (cast id Symbol) envir)]
+    [(IdC id) (find-bind id envir)]
     [(StrC s) (StrV s)]
     [(IfC b t else) (if (equal? (interp b envir) (BoolV #t))
                         (interp t envir)
@@ -68,23 +68,58 @@
     [(LamC params body) (CloV (map (lambda ([sym : IdC]) (IdC-id sym)) params) body envir)]
     [(AppC fun args) (interp-appc fun args envir)]))
 
+
 ;; find-bind, search the environment for the variable and return its value
+;;if variable is not found but is a prim operator, cast it into a prim
 (define (find-bind [sym : Symbol] [env : (Listof Bind)]) : ValV
   (match (filter (lambda ([b : Bind]) (symbol=? (Bind-id b) sym)) env)
     [(list (Bind _ val)) val]
-    [_ (error 'find-bind "QWJZ - Runtime error: unbound identifier ~e" sym)]))
+    [_ (cond
+         [(prim-op? sym) (PrimV sym env)]
+         [(equal? sym 'true) (BoolV #t)]
+         [(equal? sym 'false) (BoolV #f)]
+         [(error 'find-bind "QWJZ - Runtime error: unbound identifier ~e" sym)])]))
+
+; prim-op? checks if the function call is a primitive operator
+(define (prim-op? [e : Symbol]) : Boolean
+  (or (equal? e '+) (equal? e '-) (equal? e '/) (equal? e '*)
+      (equal? e '<=) (equal? e 'equal?) (equal? e 'true) (equal? e 'false)
+      (equal? e 'error)))
 
 ;; interp-appc, helper function that interps the AppC
 (define (interp-appc [fun : ExprC] [args : (Listof ExprC)] [envir : (Listof Bind)]) : ValV
   (define f-value (interp fun envir)) ;1. interp the function
-  (unless (CloV? f-value) ; Check if f-value is a CloV, if not error
-    (error 'interp-appc "QWJZ - Runtime error: expected a CloV, but got" f-value))
   (define args-values (map (lambda ([arg : ExprC]) (interp arg envir)) args)) ;2. interp the args
-  (interp (CloV-body f-value) ;4. interp the body in new extended environment
-          (append (map Bind (CloV-params f-value) ;3. extend environment
-                       args-values) 
-                  (CloV-env f-value))))
+  (match f-value
+    [(CloV par body env)
+     (interp body ;4. interp the body in new extended environment
+             (append (map Bind par args-values) env)) ] ;3. extend environment
+    [(PrimV id env) (prim-interp id args-values envir)]
+    [other (error 'interp-appc "QWJZ - Runtime error: expected a CloV, but got" f-value)]))
 
+;takes in a primitive operator, the arguments, and its enviroment. returns a value
+(define (prim-interp [type : Symbol] [args-values : (Listof ValV)][envir : (Listof Bind)]) : ValV
+  (match* (type args-values)
+    [('+ (list (NumV left) (NumV right))) (NumV (+ left right))]
+    [('- (list (NumV left) (NumV right))) (NumV (- left right))]
+    [('/ (list (NumV left) (NumV right))) (NumV (/ left right))]
+    [('* (list (NumV left) (NumV right))) (NumV (* left right))]
+    [('<= (list (NumV left) (NumV right))) (NumV (<= left right))]
+    [('equal? (list left right)) (equal? left right)]
+    [('error? (list message)) (error "QWJZ -" f-value) ])
+
+  
+  (cond
+    [(or (equal? type '+) (equal? type '-) (equal? type '/) (equal? type '*))
+     (binop-calc type args-values)]
+    [(equal? type '+) (NumV 6) (NumV 7)]
+    [(equal? type '-) (NumV 5)]
+    [(equal? type '/) (NumV 5)]
+    [(equal? type '*) (NumV 5)]
+    [(equal? type '<=) (NumV 5)]
+    [(equal? type 'equal?) (NumV 5)]
+    [(equal? type 'error) (NumV 5)]
+    [else (NumV 6)]))
 
 ;; extend-env extends the closure's environment with new bindings
 #;(define (extend-env [cloEnv : (Listof Bind)] [curEnv : (Listof Bind)]) : (Listof Bind)
