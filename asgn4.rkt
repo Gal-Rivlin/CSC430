@@ -60,13 +60,46 @@
   ;needs to handle: numc , strc , idc , ifc , appc , lamc
   (match e
     [(NumC n) (NumV n)]
+    [(IdC id) (find-bind (cast id Symbol) envir)]
     [(StrC s) (StrV s)]
     [(IfC b t else) (if (equal? (interp b envir) (BoolV #t))
                         (interp t envir)
-                        (interp else envir))]))
+                        (interp else envir))]
+    [(LamC params body) (CloV (map (lambda ([sym : IdC]) (IdC-id sym)) params) body envir)]
+    [(AppC fun args) (interp-appc fun args envir)]))
+
+;; find-bind, search the environment for the variable and return its value
+(define (find-bind [sym : Symbol] [env : (Listof Bind)]) : ValV
+  (match (filter (lambda ([b : Bind]) (symbol=? (Bind-id b) sym)) env)
+    [(list (Bind _ val)) val]
+    [_ (error 'find-bind "QWJZ - Runtime error: unbound identifier ~e" sym)]))
+
+;; interp-appc, helper function that interps the AppC
+(define (interp-appc [fun : ExprC] [args : (Listof ExprC)] [envir : (Listof Bind)]) : ValV
+  (define f-value (interp fun envir)) ;1. interp the function
+  (unless (CloV? f-value) ; Check if f-value is a CloV, if not error
+    (error 'interp-appc "QWJZ - Runtime error: expected a CloV, but got" f-value))
+  (define args-values (map (lambda ([arg : ExprC]) (interp arg envir)) args)) ;2. interp the args
+  (interp (CloV-body f-value) ;4. interp the body in new extended environment
+          (append (map Bind (CloV-params f-value) ;3. extend environment
+                       args-values) 
+                  (CloV-env f-value))))
 
 
-;; testings
+;; extend-env extends the closure's environment with new bindings
+#;(define (extend-env [cloEnv : (Listof Bind)] [curEnv : (Listof Bind)]) : (Listof Bind)
+    )
+
+;; Copied from textbook, will help later when dealing with operators
+#;(define (num+ [l : Value] [r : Value]) : Value
+    (cond
+      [(and (NumV? l) (NumV? r))
+       (NumV (+ (NumV-n l) (NumV-n r)))]
+      [else
+       (error 'num+ "one argument was not a number")]))
+
+
+;; Test Cases
 
 
 ;parse tests
@@ -92,6 +125,31 @@
 
 (check-exn #rx"QWJZ - Syntax Error: declaration must be id - val format"
            (lambda () (parse '{declare {[x 5] [5 3]} in {+ x y}})))
+
+;; find-bind tests
+(check-equal? (find-bind 'a (list (Bind 'b (NumV 1)) (Bind 'c (NumV 2)) (Bind 'a (NumV 3))))
+              (NumV 3))
+(check-exn #rx"QWJZ - Runtime error: unbound identifier 'x"
+           (lambda () (find-bind 'x (list (Bind 'a (StrV "hi"))))))
+(check-equal? (find-bind 'str (list (Bind 'str (StrV "This is the string"))))
+              (StrV "This is the string"))
+
+;; interp tests
+(check-equal? (interp (NumC 2) '()) (NumV 2))
+(check-equal? (interp (StrC "haha") '()) (StrV "haha"))
+(check-equal? (interp (AppC (LamC (list (IdC 'x) (IdC 'y))
+                                    (AppC (IdC '+)
+                                          (list (IdC 'x) (IdC 'y))))
+                              (list (NumC 5) (NumC 7)))
+                      '())
+                (NumV 12))
+
+;from textbook
+#;(check-exn (interp (appC (fdC 'f1 'x (appC (fdC 'f2 'y (plusC (idC 'x) (idC 'y)))
+                                             (numC 4)))
+                           (numC 3))
+                     mt-env)
+             "name not found")
 
 
 
