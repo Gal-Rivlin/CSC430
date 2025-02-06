@@ -62,9 +62,9 @@
     [(NumC n) (NumV n)]
     [(IdC id) (find-bind id envir)]
     [(StrC s) (StrV s)]
-    [(IfC b t else) (if (equal? (interp b envir) (BoolV #t))
+    [(IfC b t else) (if (my-equal? (interp b envir) (BoolV #t))
                         (interp t envir)
-                        (interp else envir))]
+                        (interp else envir))] ; this does not work make helper function that takes in two values, check if their types are the same and if they are the same
     [(LamC params body) (CloV (map (lambda ([sym : IdC]) (IdC-id sym)) params) body envir)]
     [(AppC fun args) (interp-appc fun args envir)]))
 
@@ -105,9 +105,21 @@
     [('/ (list (NumV left) (NumV right))) (NumV (/ left right))]
     [('* (list (NumV left) (NumV right))) (NumV (* left right))]
     [('<= (list (NumV left) (NumV right))) (BoolV (<= left right))]
-    [('equal? (list left right)) (BoolV (equal? left right))]
-    [('error? (list message)) (error "QWJZ -" message)]
+    [('equal? (list left right)) (BoolV (my-equal? left right))] ; fix this
+    [('error? (list message)) (error 'prim-interp "QWJZ - user-error")] ; fix this
     [(other-op other-args) (error 'prim-interp "QWJZ - wrong formatting for prim-operator")]))
+
+;; Returns true if neither value is a closure or a primitive operator and the two values are equal
+(define (my-equal? [val1 : ValV] [val2 : ValV]) : Boolean
+  (cond
+    [(or (CloV? val1) (CloV? val2)) #f]  ;check types first
+    [(or (PrimV? val1) (PrimV? val2)) #f]
+    [else
+     (match* (val1 val2)
+       [((NumV n1) (NumV n2)) (if (= n1 n2) #t #f)]
+       [((StrV s1) (StrV s2)) (if (string=? s1 s2) #t #f)]
+       [((BoolV b1) (BoolV b2)) (if (and b1 b2) #t #f)]
+       [(_ _)#f])]))  ; If types don’t match, return #f
 
 ;; extend-env extends the closure's environment with new bindings
 #;(define (extend-env [cloEnv : (Listof Bind)] [curEnv : (Listof Bind)]) : (Listof Bind)
@@ -161,12 +173,15 @@
 (check-equal? (interp (NumC 2) '()) (NumV 2))
 (check-equal? (interp (StrC "haha") '()) (StrV "haha"))
 (check-equal? (interp (AppC (LamC (list (IdC 'x) (IdC 'y))
-                                    (AppC (IdC '+)
-                                          (list (IdC 'x) (IdC 'y))))
-                              (list (NumC 5) (NumC 7)))
+                                  (AppC (IdC '+)
+                                        (list (IdC 'x) (IdC 'y))))
+                            (list (NumC 5) (NumC 7)))
                       '())
-                (NumV 12))
+              (NumV 12))
 
+(check-equal? (interp (parse '{if {equal? 5 5} 10 20}) '()) (NumV 10))
+(check-equal? (interp (parse '{if {equal? "str1" "str2"} 10 20}) '()) (NumV 20))
+(check-equal? (interp (parse '{if {equal? "hi" "hi"} "yes" "no"}) '()) (StrV "yes"))
 
 ;interp-parse tests
 
@@ -176,14 +191,23 @@
 (check-equal? (interp (parse '{/ 10 5}) '()) (NumV 2))
 (check-equal? (interp (parse '{{proc {+} {+ 2 3}} {proc {x y} {* x y}}}) '()) (NumV 6))
 (check-equal? (interp (parse '{declare {[pow {proc (base nat self) {if {<= nat 0} 1 {* base {self base {- nat 1} self}}}}]}
-           in {pow 3 4 pow}} ) '()) (NumV 81))
+                                       in {pow 3 4 pow}} ) '()) (NumV 81))
 (check-equal? (interp (parse '{declare {[fact {proc (self n) {if {<= n 0} 1 {* n {self self {- n 1}}}}}]}
-           in {fact fact 6}} ) '()) (NumV 720))
+                                       in {fact fact 6}} ) '()) (NumV 720))
 
 ;(check-equal? (interp (parse '{if true {+ 3 2} 8}) '()) (NumV 5)) ;THIS SHOULDN'T BE FAILING
 
 
-
+;; my-equal? tests
+(check-equal? (my-equal? (StrV "str1") (StrV "str1")) #t)
+(check-equal? (my-equal? (StrV "str1") (StrV "str2")) #f)
+(check-equal? (my-equal? (StrV "str") (NumV 1)) #f)
+(check-equal? (my-equal? (NumV 1) (NumV 2)) #f)
+(check-equal? (my-equal? (NumV 1) (NumV 1)) #t)
+(check-equal? (my-equal? (BoolV #t) (BoolV #t)) #t)
+(check-equal? (my-equal? (BoolV #t) (BoolV #f)) #f)
+(check-equal? (my-equal? (CloV (list 'x) (NumC 1) '()) (StrV "str")) #f)
+(check-equal? (my-equal? (PrimV '+)(PrimV '+)) #f)
 
 ;from textbook
 #;(check-exn (interp (appC (fdC 'f1 'x (appC (fdC 'f2 'y (plusC (idC 'x) (idC 'y)))
