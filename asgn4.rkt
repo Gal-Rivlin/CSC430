@@ -24,7 +24,7 @@
 (struct BoolV ([b : Boolean]) #:transparent)
 (struct CloV ([params : (Listof Symbol)] [body : ExprC] [env : (Listof Bind)]))
 (struct Bind ([id : Symbol] [val : ValV]) #:transparent)
-(struct PrimV ([id : Symbol] [env : (Listof Bind)]))
+(struct PrimV ([id : Symbol]))
 
 
 ;; parse, takes in an Sexp and returns an exprc
@@ -75,7 +75,7 @@
   (match (filter (lambda ([b : Bind]) (symbol=? (Bind-id b) sym)) env)
     [(list (Bind _ val)) val]
     [_ (cond
-         [(prim-op? sym) (PrimV sym env)]
+         [(prim-op? sym) (PrimV sym)]
          [(equal? sym 'true) (BoolV #t)]
          [(equal? sym 'false) (BoolV #f)]
          [(error 'find-bind "QWJZ - Runtime error: unbound identifier ~e" sym)])]))
@@ -94,32 +94,20 @@
     [(CloV par body env)
      (interp body ;4. interp the body in new extended environment
              (append (map Bind par args-values) env)) ] ;3. extend environment
-    [(PrimV id env) (prim-interp id args-values envir)]
+    [(PrimV id) (prim-interp id args-values)]
     [other (error 'interp-appc "QWJZ - Runtime error: expected a CloV, but got" f-value)]))
 
 ;takes in a primitive operator, the arguments, and its enviroment. returns a value
-(define (prim-interp [type : Symbol] [args-values : (Listof ValV)][envir : (Listof Bind)]) : ValV
+(define (prim-interp [type : Symbol] [args-values : (Listof ValV)]) : ValV
   (match* (type args-values)
     [('+ (list (NumV left) (NumV right))) (NumV (+ left right))]
     [('- (list (NumV left) (NumV right))) (NumV (- left right))]
     [('/ (list (NumV left) (NumV right))) (NumV (/ left right))]
     [('* (list (NumV left) (NumV right))) (NumV (* left right))]
-    [('<= (list (NumV left) (NumV right))) (NumV (<= left right))]
-    [('equal? (list left right)) (equal? left right)]
-    [('error? (list message)) (error "QWJZ -" f-value) ])
-
-  
-  (cond
-    [(or (equal? type '+) (equal? type '-) (equal? type '/) (equal? type '*))
-     (binop-calc type args-values)]
-    [(equal? type '+) (NumV 6) (NumV 7)]
-    [(equal? type '-) (NumV 5)]
-    [(equal? type '/) (NumV 5)]
-    [(equal? type '*) (NumV 5)]
-    [(equal? type '<=) (NumV 5)]
-    [(equal? type 'equal?) (NumV 5)]
-    [(equal? type 'error) (NumV 5)]
-    [else (NumV 6)]))
+    [('<= (list (NumV left) (NumV right))) (BoolV (<= left right))]
+    [('equal? (list left right)) (BoolV (equal? left right))]
+    [('error? (list message)) (error "QWJZ -" message)]
+    [(other-op other-args) (error 'prim-interp "QWJZ - wrong formatting for prim-operator")]))
 
 ;; extend-env extends the closure's environment with new bindings
 #;(define (extend-env [cloEnv : (Listof Bind)] [curEnv : (Listof Bind)]) : (Listof Bind)
@@ -178,6 +166,24 @@
                               (list (NumC 5) (NumC 7)))
                       '())
                 (NumV 12))
+
+
+;interp-parse tests
+
+(check-equal? (interp (parse '{+ 3 5}) '()) (NumV 8))
+(check-equal? (interp (parse '{- 3 5}) '()) (NumV -2))
+(check-equal? (interp (parse '{* 3 5}) '()) (NumV 15))
+(check-equal? (interp (parse '{/ 10 5}) '()) (NumV 2))
+(check-equal? (interp (parse '{{proc {+} {+ 2 3}} {proc {x y} {* x y}}}) '()) (NumV 6))
+(check-equal? (interp (parse '{declare {[pow {proc (base nat self) {if {<= nat 0} 1 {* base {self base {- nat 1} self}}}}]}
+           in {pow 3 4 pow}} ) '()) (NumV 81))
+(check-equal? (interp (parse '{declare {[fact {proc (self n) {if {<= n 0} 1 {* n {self self {- n 1}}}}}]}
+           in {fact fact 6}} ) '()) (NumV 720))
+
+;(check-equal? (interp (parse '{if true {+ 3 2} 8}) '()) (NumV 5)) ;THIS SHOULDN'T BE FAILING
+
+
+
 
 ;from textbook
 #;(check-exn (interp (appC (fdC 'f1 'x (appC (fdC 'f2 'y (plusC (idC 'x) (idC 'y)))
