@@ -62,9 +62,12 @@
     [(NumC n) (NumV n)]
     [(IdC id) (find-bind id envir)]
     [(StrC s) (StrV s)]
-    [(IfC b t else) (if (my-equal? (interp b envir) (BoolV #t))
+    [(IfC b t else) (define boolstate (interp b envir))
+                    (if (BoolV? boolstate)
+                        (if (my-equal? boolstate (BoolV #t))
                         (interp t envir)
-                        (interp else envir))] ; this does not work make helper function that takes in two values, check if their types are the same and if they are the same
+                        (interp else envir))
+                        (error 'interp "QWJZ - conditional is not a boolean ~e" boolstate))] 
     [(LamC params body) (CloV (map (lambda ([sym : IdC]) (IdC-id sym)) params) body envir)]
     [(AppC fun args) (interp-appc fun args envir)]))
 
@@ -74,17 +77,16 @@
 (define (find-bind [sym : Symbol] [env : (Listof Bind)]) : ValV
   (match (filter (lambda ([b : Bind]) (symbol=? (Bind-id b) sym)) env)
     [(list (Bind _ val)) val]
-    [_ (cond
-         [(prim-op? sym) (PrimV sym)]
-         [(equal? sym 'true) (BoolV #t)]
-         [(equal? sym 'false) (BoolV #f)]
-         [(error 'find-bind "QWJZ - Runtime error: unbound identifier ~e" sym)])]))
+    [_ (match sym
+         [(? prim-op? s) (PrimV s)]
+         ['true (BoolV #t)]
+         ['false (BoolV #f)]
+         [other (error 'find-bind "QWJZ - Runtime error: unbound identifier ~e" sym)])]))
 
 ; prim-op? checks if the function call is a primitive operator
 (define (prim-op? [e : Symbol]) : Boolean
   (or (equal? e '+) (equal? e '-) (equal? e '/) (equal? e '*)
-      (equal? e '<=) (equal? e 'equal?) (equal? e 'true) (equal? e 'false)
-      (equal? e 'error)))
+      (equal? e '<=) (equal? e 'equal?) (equal? e 'error)))
 
 ;; interp-appc, helper function that interps the AppC
 (define (interp-appc [fun : ExprC] [args : (Listof ExprC)] [envir : (Listof Bind)]) : ValV
@@ -118,8 +120,25 @@
      (match* (val1 val2)
        [((NumV n1) (NumV n2)) (if (= n1 n2) #t #f)]
        [((StrV s1) (StrV s2)) (if (string=? s1 s2) #t #f)]
-       [((BoolV b1) (BoolV b2)) (if (and b1 b2) #t #f)]
+       [((BoolV b1) (BoolV b2)) (if (or (and b1 b2) (and (not b1) (not b2))) #t #f)]
        [(_ _)#f])]))  ; If types don’t match, return #f
+
+;; serialize - accepts a valv and returns it as a string
+
+(define (serialize [val : ValV]) : String
+  (match val
+    [(NumV n) (format "~v" n)]
+    [(StrV s) (format "~v" s)]
+    [(BoolV #t) "true"]
+    [(BoolV #f) "false"]
+    [(CloV p b e) "#<procedure>"]
+    [(PrimV i) "#<primop>"]))
+
+
+;; top-interp - accepts an QWJZ4 syntax and returns the value as a string
+
+(define (top-interp [exp : Sexp]) : String
+  (serialize (interp (parse exp) '())))
 
 ;; extend-env extends the closure's environment with new bindings
 #;(define (extend-env [cloEnv : (Listof Bind)] [curEnv : (Listof Bind)]) : (Listof Bind)
@@ -195,8 +214,8 @@
 (check-equal? (interp (parse '{declare {[fact {proc (self n) {if {<= n 0} 1 {* n {self self {- n 1}}}}}]}
                                        in {fact fact 6}} ) '()) (NumV 720))
 
-;(check-equal? (interp (parse '{if true {+ 3 2} 8}) '()) (NumV 5)) ;THIS SHOULDN'T BE FAILING
-
+(check-equal? (interp (parse '{if true {+ 3 2} 8}) '()) (NumV 5)) ;THIS SHOULDN'T BE FAILING
+(check-equal? (interp (parse '{if false {+ 3 2} 8}) '()) (NumV 8))
 
 ;; my-equal? tests
 (check-equal? (my-equal? (StrV "str1") (StrV "str1")) #t)
@@ -215,6 +234,14 @@
                            (numC 3))
                      mt-env)
              "name not found")
+
+
+; top - interp tests
+
+(check-equal? (top-interp '{declare {[fact {proc (self n) {if {<= n 0} 1 {* n {self self {- n 1}}}}}]}
+                                       in {fact fact 6}}) "720")
+
+
 
 
 
