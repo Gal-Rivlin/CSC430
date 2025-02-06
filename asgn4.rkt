@@ -94,10 +94,13 @@
   (define args-values (map (lambda ([arg : ExprC]) (interp arg envir)) args)) ;2. interp the args
   (match f-value
     [(CloV par body env)
-     (interp body ;4. interp the body in new extended environment
-             (append (map Bind par args-values) env)) ] ;3. extend environment
+     (if (= (length par) (length args-values))
+         (interp body ;4. interp the body in new extended environment
+             (append (map Bind par args-values) env))
+         (error 'interp-appc "QWJZ - wrong number of arguments pushed"))
+      ] ;3. extend environment
     [(PrimV id) (prim-interp id args-values)]
-    [other (error 'interp-appc "QWJZ - Runtime error: expected a CloV, but got" f-value)]))
+    [other (error 'interp-appc "QWJZ - Runtime error: expected a CloV, but got ~e" f-value)]))
 
 ;takes in a primitive operator, the arguments, and its enviroment. returns a value
 (define (prim-interp [type : Symbol] [args-values : (Listof ValV)]) : ValV
@@ -108,7 +111,7 @@
     [('* (list (NumV left) (NumV right))) (NumV (* left right))]
     [('<= (list (NumV left) (NumV right))) (BoolV (<= left right))]
     [('equal? (list left right)) (BoolV (my-equal? left right))] ; fix this
-    [('error? (list message)) (error 'prim-interp "QWJZ - user-error")] ; fix this
+    [('error (list message)) (error 'prim-interp "QWJZ - user-error")] ; fix this
     [(other-op other-args) (error 'prim-interp "QWJZ - wrong formatting for prim-operator")]))
 
 ;; Returns true if neither value is a closure or a primitive operator and the two values are equal
@@ -209,9 +212,17 @@
 (check-equal? (interp (parse '{* 3 5}) '()) (NumV 15))
 (check-equal? (interp (parse '{/ 10 5}) '()) (NumV 2))
 (check-equal? (interp (parse '{{proc {+} {+ 2 3}} {proc {x y} {* x y}}}) '()) (NumV 6))
-(check-equal? (interp (parse '{declare {[pow {proc (base nat self) {if {<= nat 0} 1 {* base {self base {- nat 1} self}}}}]}
-                                       in {pow 3 4 pow}} ) '()) (NumV 81))
-(check-equal? (interp (parse '{declare {[fact {proc (self n) {if {<= n 0} 1 {* n {self self {- n 1}}}}}]}
+(check-equal? (interp
+               (parse '{declare
+                        {[pow {proc (base nat self)
+                                    {if {<= nat 0}
+                                        1
+                                        {* base {self base {- nat 1} self}}}}]}
+                        in {pow 3 4 pow}} ) '()) (NumV 81))
+(check-equal? (interp (parse '{declare {[fact {proc (self n)
+                                                    {if {<= n 0}
+                                                        1
+                                                        {* n {self self {- n 1}}}}}]}
                                        in {fact fact 6}} ) '()) (NumV 720))
 
 (check-equal? (interp (parse '{if true {+ 3 2} 8}) '()) (NumV 5)) ;THIS SHOULDN'T BE FAILING
@@ -238,9 +249,50 @@
 
 ; top - interp tests
 
-(check-equal? (top-interp '{declare {[fact {proc (self n) {if {<= n 0} 1 {* n {self self {- n 1}}}}}]}
+(check-equal? (top-interp '{declare {[fact {proc (self n)
+                                                 {if {<= n 0}
+                                                     1
+                                                     {* n {self self {- n 1}}}}}]}
                                        in {fact fact 6}}) "720")
 
+(check-equal? (top-interp '{if (<= 3 5) "hello" "goodbye"}) "\"hello\"")
+
+(check-equal? (top-interp '{<= {+ 2 3} 8}) "true")
+
+(check-equal? (top-interp '{<= {* 8 3} 8}) "false")
+
+(check-equal? (top-interp '{declare {
+                                     [func {proc (x) {proc {y} {+ x y}}}]}
+                                    in {func 3}}) "#<procedure>")
+
+(check-equal? (top-interp '{{declare {
+                                     [func {proc (x) {proc {y} {* x y}}}]}
+                                    in {func 3}} 6}) "18")
+(check-equal? (top-interp '{if {<= {{declare {
+                                     [func {proc (x) {proc {y} {* x y}}}]}
+                                    in {func 3}} 6} 18} + false}) "#<primop>")
+
+
+
+
+(check-exn #rx"QWJZ - user-error"
+           (lambda () (top-interp '{error "hello"})))
+
+(check-exn #rx"QWJZ - wrong formatting for prim-operator"
+           (lambda () (top-interp '{+ 3 3 4})))
+
+
+(check-exn #rx"QWJZ - conditional is not a boolean"
+           (lambda () (top-interp '{if {+ 3 5} true false})))
+
+(check-exn #rx"QWJZ - Runtime error: expected a CloV, but got"
+           (lambda () (top-interp '{declare {[x 5] [y {proc {f} {* f f}}]} in {x 8}})))
+
+(check-exn #rx"QWJZ - wrong number of arguments pushed"
+           (lambda () (top-interp '{declare {[x 5] [y {proc {f} {* f f}}]} in {y}})))
+
+(check-exn #rx"QWJZ - wrong number of arguments pushed"
+           (lambda () (top-interp '{declare {[x 5] [y {proc {f} {* f f}}]} in {y 6 5}})))
 
 
 
