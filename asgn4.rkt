@@ -37,21 +37,33 @@
                        (error 'parse "QWJZ - invalid identifier name"))] ; symbols can't be proc/if/in
     [(list 'if b t e) (IfC (parse b) (parse t) (parse e))]
     [(list 'proc (list (? symbol? id) ...) body)
-     (LamC (map (lambda ([sym : Symbol]) (IdC sym)) (cast id (Listof Symbol))) (parse body))]
+     (if (check-duplicates (cast id (Listof Symbol)))
+         (error 'parse "QWJZ - Syntax Error: Duplicate argument names in function call ~e" id)
+         (LamC (map (lambda ([sym : Symbol]) (IdC sym)) (cast id (Listof Symbol))) (parse body)))]
     [(list 'declare (list pairs ...) 'in body)
-     (AppC (LamC (cast (map (lambda ([x : Sexp]) (asgn-pairs x #t)) pairs) (Listof IdC)) (parse body))
-           (map (lambda ([x : Sexp]) (asgn-pairs x #f)) pairs))]
+     (if (check-duplicates (get-vars pairs))
+         (error 'parse "QWJZ - Syntax Error: Duplicate argument names in function call")
+         (AppC (LamC (cast (map (lambda ([x : Sexp]) (asgn-pairs x #t)) pairs) (Listof IdC)) (parse body))
+               (map (lambda ([x : Sexp]) (asgn-pairs x #f)) pairs)))]
     [(list func args ...) (AppC (parse func) (map parse args))]))
+
+;; get the list of variables from a list of pairs
+(define (get-vars [pairs : (Listof Sexp)]) : (Listof Sexp)
+  (match pairs
+    ['() '()]
+    [(cons (list (? symbol? var) _) r) (if (valid-sym var)
+                                           (cons var (get-vars r))
+                                           (error 'get-vars "QWJZ - Syntax Error: invalid identifier ~e" var))]
+    [other (error 'get-vars "QWJZ - Syntax Error: declaration must be id - val format")]))
 
 ;check if the symbol we used is a valid identifier
 (define (valid-sym [sym : Sexp]) : Boolean
-  (and (symbol? sym) (not (or (equal? sym 'if) (equal? sym 'proc) (equal? sym 'in)))))
+  (and (symbol? sym) (not (or (equal? sym 'if) (equal? sym 'proc) (equal? sym 'in) (equal? sym 'declare)))))
 
 ;take in (hopefully) a pair of identifier - value and return a chosen value/identifier
 (define (asgn-pairs [pair : Sexp] [ord : Boolean]) : ExprC
   (match pair
-    [(list (? symbol? a) b) (if ord (IdC a) (parse b))]
-    [other (error 'asgn-pairs "QWJZ - Syntax Error: declaration must be id - val format")]))
+    [(list (? symbol? a) b) (if ord (IdC a) (parse b))]))
 
 
 ;; interp : takes in an expression and its enviroment returns a value
@@ -65,8 +77,8 @@
     [(IfC b t else) (define boolstate (interp b envir))
                     (if (BoolV? boolstate)
                         (if (my-equal? boolstate (BoolV #t))
-                        (interp t envir)
-                        (interp else envir))
+                            (interp t envir)
+                            (interp else envir))
                         (error 'interp "QWJZ - conditional is not a boolean ~e" boolstate))] 
     [(LamC params body) (CloV (map (lambda ([sym : IdC]) (IdC-id sym)) params) body envir)]
     [(AppC fun args) (interp-appc fun args envir)]))
@@ -96,9 +108,9 @@
     [(CloV par body env)
      (if (= (length par) (length args-values))
          (interp body ;4. interp the body in new extended environment
-             (append (map Bind par args-values) env))
+                 (append (map Bind par args-values) env))
          (error 'interp-appc "QWJZ - wrong number of arguments pushed"))
-      ] ;3. extend environment
+     ] ;3. extend environment
     [(PrimV id) (prim-interp id args-values)]
     [other (error 'interp-appc "QWJZ - Runtime error: expected a CloV, but got ~e" f-value)]))
 
@@ -107,7 +119,10 @@
   (match* (type args-values)
     [('+ (list (NumV left) (NumV right))) (NumV (+ left right))]
     [('- (list (NumV left) (NumV right))) (NumV (- left right))]
-    [('/ (list (NumV left) (NumV right))) (NumV (/ left right))]
+    [('/ (list (NumV left) (NumV right)))
+     (if (= right 0)
+         (error 'prim-interp "QWJZ - Cannot divide by zero")
+         (NumV (/ left right)))]
     [('* (list (NumV left) (NumV right))) (NumV (* left right))]
     [('<= (list (NumV left) (NumV right))) (BoolV (<= left right))]
     [('equal? (list left right)) (BoolV (my-equal? left right))] ; fix this
@@ -183,6 +198,16 @@
 (check-exn #rx"QWJZ - Syntax Error: declaration must be id - val format"
            (lambda () (parse '{declare {[x 5] [5 3]} in {+ x y}})))
 
+(check-exn #rx"QWJZ - Syntax Error: Duplicate argument names in function call"
+           (lambda () (parse '(proc (x x) 3))))
+
+(check-exn #rx"QWJZ - Syntax Error: Duplicate argument names in function call"
+           (lambda () (parse '{declare {[x 5] [x 3]} in 3})))
+
+(check-exn #rx"QWJZ - Syntax Error: "
+           (lambda () (parse '(declare ((declare "")) in "World"))))
+
+
 ;; find-bind tests
 (check-equal? (find-bind 'a (list (Bind 'b (NumV 1)) (Bind 'c (NumV 2)) (Bind 'a (NumV 3))))
               (NumV 3))
@@ -204,6 +229,8 @@
 (check-equal? (interp (parse '{if {equal? 5 5} 10 20}) '()) (NumV 10))
 (check-equal? (interp (parse '{if {equal? "str1" "str2"} 10 20}) '()) (NumV 20))
 (check-equal? (interp (parse '{if {equal? "hi" "hi"} "yes" "no"}) '()) (StrV "yes"))
+(check-exn #rx"QWJZ - Cannot divide by zero"
+           (lambda () (top-interp '(/ 1 (- 3 3)))))
 
 ;interp-parse tests
 
@@ -253,7 +280,7 @@
                                                  {if {<= n 0}
                                                      1
                                                      {* n {self self {- n 1}}}}}]}
-                                       in {fact fact 6}}) "720")
+                                    in {fact fact 6}}) "720")
 
 (check-equal? (top-interp '{if (<= 3 5) "hello" "goodbye"}) "\"hello\"")
 
@@ -266,11 +293,11 @@
                                     in {func 3}}) "#<procedure>")
 
 (check-equal? (top-interp '{{declare {
-                                     [func {proc (x) {proc {y} {* x y}}}]}
-                                    in {func 3}} 6}) "18")
+                                      [func {proc (x) {proc {y} {* x y}}}]}
+                                     in {func 3}} 6}) "18")
 (check-equal? (top-interp '{if {<= {{declare {
-                                     [func {proc (x) {proc {y} {* x y}}}]}
-                                    in {func 3}} 6} 18} + false}) "#<primop>")
+                                              [func {proc (x) {proc {y} {* x y}}}]}
+                                             in {func 3}} 6} 18} + false}) "#<primop>")
 
 
 
